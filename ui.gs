@@ -5,7 +5,11 @@ function showSidebar(e) {
   if (e && e.drive && e.drive.selectedItems && e.drive.selectedItems.length > 0) {
     fileId = e.drive.selectedItems[0].id;
     fileName = e.drive.selectedItems[0].title;
-    tags = getTags(fileId).join(', ');
+    try {
+      tags = getTags(fileId).join(', ');
+    } catch (err) {
+      Logger.log('Failed to load tags for %s: %s', fileId, err);
+    }
   }
   return buildMainCard(fileId, tags, fileName);
 }
@@ -17,7 +21,11 @@ function onDriveItemsSelected(e) {
   if (e && e.drive && e.drive.selectedItems && e.drive.selectedItems.length > 0) {
     fileId = e.drive.selectedItems[0].id;
     fileName = e.drive.selectedItems[0].title;
-    tags = getTags(fileId).join(', ');
+    try {
+      tags = getTags(fileId).join(', ');
+    } catch (err) {
+      Logger.log('Failed to load tags for %s: %s', fileId, err);
+    }
   }
   return buildMainCard(fileId, tags, fileName);
 }
@@ -25,7 +33,7 @@ function onDriveItemsSelected(e) {
 function buildMainCard(fileId, tags, fileName) {
     if (fileId && !fileName) {
       try {
-        fileName = Drive.Files.get(fileId, {fields: 'name'}).name;
+        fileName = Drive.Files.get(fileId, {fields: 'name', supportsAllDrives: true}).name;
       } catch (err) {}
     }
   var card = CardService.newCardBuilder();
@@ -83,7 +91,13 @@ function buildMainCard(fileId, tags, fileName) {
 
 function loadTags(e) {
   var fileId = getFormValue(e, 'fileId');
-  var tags = getTags(fileId).join(', ');
+  var tags = '';
+  try {
+    tags = getTags(fileId).join(', ');
+  } catch (err) {
+    var errorNotif = CardService.newNotification().setText('Failed to load tags: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
+  }
   var nav = CardService.newNavigation().updateCard(buildMainCard(fileId, tags));
   return CardService.newActionResponseBuilder().setNavigation(nav).build();
 }
@@ -92,19 +106,34 @@ function saveTags(e) {
   var fileId = getFormValue(e, 'fileId');
   var tagsStr = getFormValue(e, 'tags');
   var tags = tagsStr ? tagsStr.split(',').map(function(t){ return t.trim(); }).filter(String) : [];
-  setTags(fileId, tags);
-  var appProps = {};
   try {
-    appProps = Drive.Files.get(fileId, {fields: 'appProperties'}).appProperties || {};
+    setTags(fileId, tags);
+  } catch (err) {
+    var errorNotif = CardService.newNotification().setText('Failed to save tags: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
+  }
+  var labelInfo = {};
+  try {
+    labelInfo = Drive.Files.get(fileId, {
+      fields: 'labelInfo',
+      includeLabels: TAG_LABEL_ID,
+      supportsAllDrives: true
+    }).labelInfo || {};
   } catch (err) {}
-  Logger.log('Saved appProperties for %s: %s', fileId, JSON.stringify(appProps));
+  Logger.log('Saved labels for %s: %s', fileId, JSON.stringify(labelInfo));
   var notif = CardService.newNotification().setText('Tags saved');
   return CardService.newActionResponseBuilder().setNotification(notif).build();
 }
 
 function searchByTagAction(e) {
   var tag = getFormValue(e, 'searchTag');
-  var files = searchByTag(tag);
+  var files;
+  try {
+    files = searchByTag(tag);
+  } catch (err) {
+    var errorNotif = CardService.newNotification().setText('Search failed: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
+  }
   var card = CardService.newCardBuilder()
       .setHeader(CardService.newCardHeader().setTitle('Search Results'));
   var section = CardService.newCardSection();
