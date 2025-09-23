@@ -6,12 +6,18 @@
         "userSymbol": "Drive",
         "serviceId": "drive",
         "version": "v3"
+      },
+      {
+        "userSymbol": "DriveLabels",
+        "serviceId": "drivelabels",
+        "version": "v2"
       }
     ]
   },
   "oauthScopes": [
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/drive.addons.metadata.readonly"
+    "https://www.googleapis.com/auth/drive.addons.metadata.readonly",
+    "https://www.googleapis.com/auth/drive.labels.readonly"
   ],
   "runtimeVersion": "V8",
   "addOns": {

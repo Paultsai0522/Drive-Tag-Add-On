@@ -2,6 +2,10 @@ function showSidebar(e) {
   var fileId = '';
   var fileName = '';
   var tags = '';
+  if (!e || !e.drive || !e.drive.selectedItems || e.drive.selectedItems.length === 0) {
+    // No selection: reset sidebar to default empty state
+    return buildMainCard('', '', '');
+  }
   if (e && e.drive && e.drive.selectedItems && e.drive.selectedItems.length > 0) {
     fileId = e.drive.selectedItems[0].id;
     fileName = e.drive.selectedItems[0].title;
@@ -18,6 +22,10 @@ function onDriveItemsSelected(e) {
   var fileId = '';
   var fileName = '';
   var tags = '';
+  if (!e || !e.drive || !e.drive.selectedItems || e.drive.selectedItems.length === 0) {
+    // No selection: reset sidebar to default empty state
+    return buildMainCard('', '', '');
+  }
   if (e && e.drive && e.drive.selectedItems && e.drive.selectedItems.length > 0) {
     fileId = e.drive.selectedItems[0].id;
     fileName = e.drive.selectedItems[0].title;
@@ -54,31 +62,57 @@ function buildMainCard(fileId, tags, fileName) {
   }
   section.addWidget(fileIdInput);
 
-  var tagsInput = CardService.newTextInput()
-      .setFieldName('tags')
-      .setTitle('Tags (comma-separated)');
+  // Render existing tags as buttons
+  var tagList = [];
   if (tags) {
-    tagsInput.setValue(tags);
+    if (Array.isArray(tags)) {
+      tagList = tags;
+    } else if (typeof tags === 'string') {
+      tagList = tags.split(',').map(function(t){ return t.trim(); }).filter(function(t){ return !!t; });
+    }
   }
-  section.addWidget(tagsInput);
+  if (tagList.length) {
+    var tagButtons = CardService.newButtonSet();
+    var rootId;
+    try { rootId = ensureTagsRoot(); } catch (e) { rootId = null; }
+    tagList.forEach(function(tag) {
+      var btn = CardService.newTextButton().setText(tag);
+      try {
+        var folderId = rootId ? ensureTagFolder(normalizeTag(tag), rootId) : null;
+        if (folderId) {
+          btn.setOpenLink(
+            CardService.newOpenLink()
+              .setUrl('https://drive.google.com/drive/folders/' + folderId)
+              .setOpenAs(CardService.OpenAs.NEW_TAB)
+          );
+        }
+      } catch (e) {}
+      tagButtons.addButton(btn);
+    });
+    section.addWidget(tagButtons);
+  } else {
+    section.addWidget(CardService.newTextParagraph().setText('No tags yet'));
+  }
 
-  var loadTagsButton = CardService.newTextButton()
-      .setText('Load Tags')
-      .setOnClickAction(CardService.newAction().setFunctionName('loadTags'));
+  // Add new tag input + button
+  var newTagInput = CardService.newTextInput()
+      .setFieldName('newTag')
+      .setTitle('Add a tag');
+  section.addWidget(newTagInput);
 
-  var saveTagsButton = CardService.newTextButton()
-      .setText('Save Tags')
-      .setOnClickAction(CardService.newAction().setFunctionName('saveTags'));
+  var addTagButton = CardService.newTextButton()
+      .setText('Add Tag')
+      .setOnClickAction(CardService.newAction().setFunctionName('addTagAction'));
 
-  section.addWidget(CardService.newButtonSet()
-      .addButton(loadTagsButton)
-      .addButton(saveTagsButton));
+  section.addWidget(CardService.newButtonSet().addButton(addTagButton));
 
   var searchInput = CardService.newTextInput()
       .setFieldName('searchTag')
-      .setTitle('Search Tag')
-      .setHint('Enter tag to search for');
+      .setTitle('Search Tags')
+      .setHint('Enter tags separated by plus (+), e.g., alpha+beta');
   section.addWidget(searchInput);
+
+  // Multi-tag search defaults to ALL (AND). No UI selector for now.
 
   var searchButton = CardService.newTextButton()
       .setText('Search')
@@ -93,7 +127,7 @@ function loadTags(e) {
   var fileId = getFormValue(e, 'fileId');
   var tags = '';
   try {
-    tags = getTags(fileId).join(', ');
+    tags = getTags(fileId);
   } catch (err) {
     var errorNotif = CardService.newNotification().setText('Failed to load tags: ' + err.message);
     return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
@@ -102,58 +136,83 @@ function loadTags(e) {
   return CardService.newActionResponseBuilder().setNavigation(nav).build();
 }
 
-function saveTags(e) {
+function addTagAction(e) {
   var fileId = getFormValue(e, 'fileId');
-  var tagsStr = getFormValue(e, 'tags');
-  var tags = tagsStr ? tagsStr.split(',').map(function(t){ return t.trim(); }).filter(String) : [];
-  try {
-    setTags(fileId, tags);
-  } catch (err) {
-    var errorNotif = CardService.newNotification().setText('Failed to save tags: ' + err.message);
+  var newTag = getFormValue(e, 'newTag');
+  if (!fileId) {
+    var errorNotif = CardService.newNotification().setText('File ID is required');
     return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
   }
-  var labelInfo = {};
+  var current = [];
+  try { current = getTags(fileId); } catch (err) { current = []; }
+  if (newTag) {
+    var norm = normalizeTag(newTag);
+    if (norm && current.indexOf(norm) === -1) {
+      current.push(norm);
+    }
+  }
   try {
-    labelInfo = Drive.Files.get(fileId, {
-      fields: 'labelInfo',
-      includeLabels: TAG_LABEL_ID,
-      supportsAllDrives: true
-    }).labelInfo || {};
-  } catch (err) {}
-  Logger.log('Saved labels for %s: %s', fileId, JSON.stringify(labelInfo));
-  var notif = CardService.newNotification().setText('Tags saved');
-  return CardService.newActionResponseBuilder().setNotification(notif).build();
+    setTags(fileId, current);
+  } catch (err) {
+    var errorNotif2 = CardService.newNotification().setText('Failed to add tag: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif2).build();
+  }
+  var nav = CardService.newNavigation().updateCard(buildMainCard(fileId, current));
+  var notif = CardService.newNotification().setText('Tag added');
+  return CardService.newActionResponseBuilder().setNavigation(nav).setNotification(notif).build();
+}
+
+function removeTagAction(e) {
+  var fileId = getFormValue(e, 'fileId');
+  var tag = getParam(e, 'tag');
+  if (!fileId || !tag) {
+    var errorNotif = CardService.newNotification().setText('Missing file or tag');
+    return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
+  }
+  var current = [];
+  try { current = getTags(fileId); } catch (err) { current = []; }
+  var next = current.filter(function(t){ return t !== tag; });
+  try {
+    setTags(fileId, next);
+  } catch (err) {
+    var errorNotif2 = CardService.newNotification().setText('Failed to remove tag: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif2).build();
+  }
+  var nav = CardService.newNavigation().updateCard(buildMainCard(fileId, next));
+  var notif = CardService.newNotification().setText('Tag removed');
+  return CardService.newActionResponseBuilder().setNavigation(nav).setNotification(notif).build();
 }
 
 function searchByTagAction(e) {
-  var tag = getFormValue(e, 'searchTag');
-  var files;
+  var raw = getFormValue(e, 'searchTag');
+  var tags = raw ? raw.split(/\s*\+\s*/).map(function(t){ return t.trim(); }).filter(Boolean) : [];
+  var openUrl = '';
   try {
-    files = searchByTag(tag);
+    if (tags.length <= 1) {
+      // Single tag: open tag folder directly
+      var root = ensureTagsRoot();
+      var tagName = normalizeTag(tags[0] || '');
+      if (tagName) {
+        var folderId = ensureTagFolder(tagName, root);
+        openUrl = 'https://drive.google.com/drive/folders/' + folderId;
+      }
+    } else {
+      // Multi-tag: compute results, refresh view folder, open it
+      var files = searchByTags(tags, 'all');
+      var viewFolderId = refreshMultiTagView(tags, 'all', files);
+      openUrl = 'https://drive.google.com/drive/folders/' + viewFolderId;
+    }
   } catch (err) {
     var errorNotif = CardService.newNotification().setText('Search failed: ' + err.message);
     return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
   }
-  var card = CardService.newCardBuilder()
-      .setHeader(CardService.newCardHeader().setTitle('Search Results'));
-  var section = CardService.newCardSection();
-  var driveUrl = 'https://drive.google.com/drive/search?q=' + encodeURIComponent(tag);
-  section.addWidget(CardService.newTextButton()
-      .setText('View in Drive')
-      .setOpenLink(CardService.newOpenLink().setUrl(driveUrl).setOpenAs(CardService.OpenAs.NEW_TAB)));
-  if (files.length === 0) {
-    section.addWidget(CardService.newTextParagraph().setText('No files found'));
-  } else {
-      files.forEach(function(file) {
-        var btn = CardService.newTextButton()
-            .setText(file.name)
-            .setOpenLink(CardService.newOpenLink().setUrl('https://drive.google.com/file/d/' + file.id + '/view'));
-        section.addWidget(btn);
-      });
+
+  var builder = CardService.newActionResponseBuilder();
+  if (openUrl) {
+    builder.setOpenLink(CardService.newOpenLink().setUrl(openUrl).setOpenAs(CardService.OpenAs.NEW_TAB));
   }
-  card.addSection(section);
-  var nav = CardService.newNavigation().pushCard(card.build());
-  return CardService.newActionResponseBuilder().setNavigation(nav).build();
+  // Keep the sidebar unchanged (no navigation changes)
+  return builder.build();
 }
 
 function getFormValue(e, name) {
@@ -165,6 +224,16 @@ function getFormValue(e, name) {
     if (inputs.stringInputs && inputs.stringInputs.value && inputs.stringInputs.value.length > 0) {
       return inputs.stringInputs.value[0];
     }
+  }
+  return '';
+}
+
+function getParam(e, name) {
+  if (e && e.parameters && e.parameters[name] !== undefined) {
+    return e.parameters[name];
+  }
+  if (e && e.commonEventObject && e.commonEventObject.parameters && e.commonEventObject.parameters[name] !== undefined) {
+    return e.commonEventObject.parameters[name];
   }
   return '';
 }
