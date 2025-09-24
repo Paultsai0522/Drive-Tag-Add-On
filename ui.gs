@@ -109,15 +109,12 @@ function buildMainCard(fileId, tags, fileName) {
   var searchInput = CardService.newTextInput()
       .setFieldName('searchTag')
       .setTitle('Search Tags')
-      .setHint('Enter tags separated by plus (+), e.g., alpha+beta');
+      .setHint('Enter tags separated by plus (+), e.g., alpha+beta')
+      .setOnChangeAction(CardService.newAction().setFunctionName('searchByTagAction'));
   section.addWidget(searchInput);
 
   // Multi-tag search defaults to ALL (AND). No UI selector for now.
-
-  var searchButton = CardService.newTextButton()
-      .setText('Search')
-      .setOnClickAction(CardService.newAction().setFunctionName('searchByTagAction'));
-  section.addWidget(searchButton);
+  // Search is triggered by pressing Enter in the input (onChangeAction).
 
   card.addSection(section);
   return card.build();
