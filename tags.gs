@@ -1,8 +1,9 @@
-// Shortcut-based tagging backend for personal Gmail.
+﻿// Shortcut-based tagging backend for personal Gmail.
 // Creates a root folder (default: "Tags") and one subfolder per tag.
 // Saving tags creates/removes shortcuts of the file inside the tag folders.
 
 var TAGS_ROOT_NAME = 'Tags';
+var APP_TAGS_PROP_KEY = 'tags';
 
 function ensureLabelConfig() {
   // No-op in shortcut backend; kept for compatibility with UI/search code paths.
@@ -38,6 +39,14 @@ function setTags(fileId, tags) {
       }
     }
   });
+
+  // Persist tags to appProperties for fast reads
+  try {
+    Logger.log('[setTags] writing appProperties for fileId=%s tags=%s', fileId, JSON.stringify(tags));
+    writeTagsToAppProperties(fileId, tags);
+  } catch (e) {
+    // best effort; ignore failures
+  }
 }
 
 // Not used in shortcut backend; kept for compatibility.
@@ -45,6 +54,19 @@ function extractTagValuesFromField(field) { return []; }
 
 function getTags(fileId) {
   if (!fileId) return [];
+  Logger.log('[getTags] fileId=%s', fileId);
+  // Fast path: read from appProperties if present
+  try {
+    var cached = readTagsFromAppProperties(fileId);
+    if (cached) {
+      Logger.log('[getTags] cache hit (appProperties) tags=%s', JSON.stringify(cached));
+      return cached;
+    }
+  } catch (e) {
+    // ignore and fall back
+  }
+  // Fallback: derive from shortcut folders
+  Logger.log('[getTags] cache miss; scanning tag folders');
   var rootId = ensureTagsRoot();
   var tagFolders = listTagFolders(rootId);
   var tags = [];
@@ -53,6 +75,12 @@ function getTags(fileId) {
       tags.push(folder.name);
     }
   });
+  Logger.log('[getTags] scan result tags=%s', JSON.stringify(tags));
+  // Seed appProperties so next load is fast
+  try {
+    writeTagsToAppProperties(fileId, tags);
+    Logger.log('[getTags] seeded appProperties for fileId=%s', fileId);
+  } catch (e) {}
   return tags;
 }
 
@@ -179,9 +207,8 @@ function normalizeTag(tag) {
   var t = String(tag).trim();
   if (!t) return '';
   // Replace forward slash which is inconvenient in folder names
-  return t.replace(/\//g, '／');
+  return t.replace(/\\\//g, '\\uFF0F');
 }
-
 function ensureTagsRoot() {
   var props = PropertiesService.getScriptProperties();
   var cached = props.getProperty('TAGS_ROOT_ID');
@@ -328,7 +355,7 @@ function buildViewFolderName(tags, mode) {
   var suffix = mode === 'any' ? 'ANY' : 'ALL';
   var base = cleanTags.join(' & ');
   var name = (base ? base : 'Empty') + ' [' + suffix + ']';
-  if (name.length > 200) name = name.slice(0, 197) + '…';
+  if (name.length > 200) name = name.slice(0, 197) + '...';
   return name;
 }
 
@@ -358,3 +385,44 @@ function normalizeTag(tag) {
   if (!t) return '';
   return t.replace(/\//g, '\uFF0F');
 }
+
+// ---------- appProperties caching for fast single-file loads ----------
+
+function readTagsFromAppProperties(fileId) {
+  var file;
+  try {
+    file = Drive.Files.get(fileId, { fields: 'appProperties', supportsAllDrives: true });
+  } catch (e) {
+    return null;
+  }
+  var props = (file && file.appProperties) || {};
+  var raw = props[APP_TAGS_PROP_KEY];
+  Logger.log('[appProps] read fileId=%s value=%s', fileId, raw === undefined ? '(undefined)' : ('"' + raw + '"'));
+  if (!raw && raw !== '') return null; // no cached value present
+  if (!raw) return [];
+  return raw.split(',').map(function(t){ return (t || '').trim(); }).filter(Boolean);
+}
+
+function writeTagsToAppProperties(fileId, tags) {
+  var existing = {};
+  try {
+    var f = Drive.Files.get(fileId, { fields: 'appProperties', supportsAllDrives: true });
+    existing = (f && f.appProperties) || {};
+  } catch (e) {
+    existing = {};
+  }
+  var oldVal = existing[APP_TAGS_PROP_KEY];
+  var newVal = (tags || []).join(',');
+  Logger.log('[appProps] update fileId=%s from=%s to=%s', fileId, oldVal === undefined ? '(undefined)' : ('"' + oldVal + '"'), '"' + newVal + '"');
+  existing[APP_TAGS_PROP_KEY] = newVal;
+  try {
+    Drive.Files.update({ appProperties: existing }, fileId, null, { supportsAllDrives: true });
+    Logger.log('[appProps] updated fileId=%s', fileId);
+  } catch (e) {
+    // best effort only
+  }
+}
+
+
+
+

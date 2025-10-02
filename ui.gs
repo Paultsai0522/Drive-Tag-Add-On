@@ -48,6 +48,9 @@ function buildMainCard(fileId, tags, fileName) {
 
   var section = CardService.newCardSection();
 
+  // Spacing at the top
+  section.addWidget(CardService.newTextParagraph().setText(' '));
+
   if (fileName) {
     section.addWidget(CardService.newKeyValue()
         .setTopLabel('Selected file')
@@ -91,8 +94,11 @@ function buildMainCard(fileId, tags, fileName) {
     });
     section.addWidget(tagButtons);
   } else {
-    section.addWidget(CardService.newTextParagraph().setText('No tags yet'));
+    section.addWidget(CardService.newTextParagraph().setText(' '));
   }
+
+  // Spacing between tags and add-tag controls
+  section.addWidget(CardService.newTextParagraph().setText(' '));
 
   // Add new tag input + button
   var newTagInput = CardService.newTextInput()
@@ -105,6 +111,9 @@ function buildMainCard(fileId, tags, fileName) {
       .setOnClickAction(CardService.newAction().setFunctionName('addTagAction'));
 
   section.addWidget(CardService.newButtonSet().addButton(addTagButton));
+
+  // Spacing between tag controls and search
+  section.addWidget(CardService.newTextParagraph().setText(' '));
 
   var searchInput = CardService.newTextInput()
       .setFieldName('searchTag')
