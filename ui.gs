@@ -76,20 +76,13 @@ function buildMainCard(fileId, tags, fileName) {
   }
   if (tagList.length) {
     var tagButtons = CardService.newButtonSet();
-    var rootId;
-    try { rootId = ensureTagsRoot(); } catch (e) { rootId = null; }
     tagList.forEach(function(tag) {
-      var btn = CardService.newTextButton().setText(tag);
-      try {
-        var folderId = rootId ? ensureTagFolder(normalizeTag(tag), rootId) : null;
-        if (folderId) {
-          btn.setOpenLink(
-            CardService.newOpenLink()
-              .setUrl('https://drive.google.com/drive/folders/' + folderId)
-              .setOpenAs(CardService.OpenAs.NEW_TAB)
-          );
-        }
-      } catch (e) {}
+      var optionsAction = CardService.newAction()
+          .setFunctionName('tagOptions')
+          .setParameters({ tag: tag, fileId: fileId || '' });
+      var btn = CardService.newTextButton()
+          .setText(tag)
+          .setOnClickAction(optionsAction);
       tagButtons.addButton(btn);
     });
     section.addWidget(tagButtons);
@@ -118,7 +111,7 @@ function buildMainCard(fileId, tags, fileName) {
   var searchInput = CardService.newTextInput()
       .setFieldName('searchTag')
       .setTitle('Search Tags')
-      .setHint('Enter tags separated by plus (+), e.g., alpha+beta')
+      .setHint('Enter tags separated by +')
       .setOnChangeAction(CardService.newAction().setFunctionName('searchByTagAction'));
   section.addWidget(searchInput);
 
@@ -169,7 +162,7 @@ function addTagAction(e) {
 }
 
 function removeTagAction(e) {
-  var fileId = getFormValue(e, 'fileId');
+  var fileId = getFormValue(e, 'fileId') || getParam(e, 'fileId');
   var tag = getParam(e, 'tag');
   if (!fileId || !tag) {
     var errorNotif = CardService.newNotification().setText('Missing file or tag');
@@ -184,8 +177,126 @@ function removeTagAction(e) {
     var errorNotif2 = CardService.newNotification().setText('Failed to remove tag: ' + err.message);
     return CardService.newActionResponseBuilder().setNotification(errorNotif2).build();
   }
-  var nav = CardService.newNavigation().updateCard(buildMainCard(fileId, next));
+  var nav = CardService.newNavigation();
+  if (getParam(e, 'fromOptions') === '1') {
+    nav.popCard();
+  }
+  nav.updateCard(buildMainCard(fileId, next));
   var notif = CardService.newNotification().setText('Tag removed');
+  return CardService.newActionResponseBuilder().setNavigation(nav).setNotification(notif).build();
+}
+
+function tagOptions(e) {
+  var status = getLicenseStatusSafe(e);
+  if (!(status.licensed || status.inTrial)) {
+    var navDenied = CardService.newNavigation().updateCard(buildUpgradeCard(e, status));
+    var notifDenied = CardService.newNotification().setText('Upgrade required');
+    return CardService.newActionResponseBuilder().setNavigation(navDenied).setNotification(notifDenied).build();
+  }
+  var tag = getParam(e, 'tag');
+  var fileId = getParam(e, 'fileId') || getFormValue(e, 'fileId') || '';
+  var card = CardService.newCardBuilder()
+      .setHeader(CardService.newCardHeader().setTitle('Tag Options').setSubtitle(tag || ''));
+  var section = CardService.newCardSection();
+  var folderUrl = '';
+  if (tag) {
+    try {
+      var root = ensureTagsRoot();
+      var folderId = ensureTagFolder(normalizeTag(tag), root);
+      folderUrl = 'https://drive.google.com/drive/folders/' + folderId;
+    } catch (err) {}
+  }
+  if (folderUrl) {
+    section.addWidget(CardService.newTextButton()
+      .setText('Open in Drive')
+      .setOpenLink(CardService.newOpenLink().setUrl(folderUrl).setOpenAs(CardService.OpenAs.NEW_TAB)));
+  }
+
+  var renameAction = CardService.newAction()
+      .setFunctionName('renameTagPrompt')
+      .setParameters({ tag: tag || '', fileId: fileId || '' });
+  section.addWidget(CardService.newTextButton().setText('Rename').setOnClickAction(renameAction));
+
+  var deleteAction = CardService.newAction()
+      .setFunctionName('removeTagAction')
+      .setParameters({ tag: tag || '', fileId: fileId || '', fromOptions: '1' });
+  section.addWidget(CardService.newTextButton().setText('Delete').setOnClickAction(deleteAction));
+
+  card.addSection(section);
+  var nav = CardService.newNavigation().pushCard(card.build());
+  return CardService.newActionResponseBuilder().setNavigation(nav).build();
+}
+
+function renameTagPrompt(e) {
+  var status = getLicenseStatusSafe(e);
+  if (!(status.licensed || status.inTrial)) {
+    var navDenied = CardService.newNavigation().updateCard(buildUpgradeCard(e, status));
+    var notifDenied = CardService.newNotification().setText('Upgrade required');
+    return CardService.newActionResponseBuilder().setNavigation(navDenied).setNotification(notifDenied).build();
+  }
+  var tag = getParam(e, 'tag');
+  var fileId = getParam(e, 'fileId') || getFormValue(e, 'fileId') || '';
+  var card = CardService.newCardBuilder()
+      .setHeader(CardService.newCardHeader().setTitle('Rename Tag').setSubtitle(tag || ''));
+  var section = CardService.newCardSection();
+  section.addWidget(CardService.newTextInput()
+      .setFieldName('newTagName')
+      .setTitle('New tag name')
+      .setValue(tag || ''));
+
+  var renameAction = CardService.newAction()
+      .setFunctionName('renameTagAction')
+      .setParameters({ fileId: fileId || '', originalTag: tag || '' });
+  section.addWidget(CardService.newButtonSet().addButton(
+      CardService.newTextButton().setText('Rename').setOnClickAction(renameAction)));
+
+  card.addSection(section);
+  var nav = CardService.newNavigation().pushCard(card.build());
+  return CardService.newActionResponseBuilder().setNavigation(nav).build();
+}
+
+function renameTagAction(e) {
+  var status = getLicenseStatusSafe(e);
+  if (!(status.licensed || status.inTrial)) {
+    var navDenied = CardService.newNavigation().updateCard(buildUpgradeCard(e, status));
+    var notifDenied = CardService.newNotification().setText('Upgrade required');
+    return CardService.newActionResponseBuilder().setNavigation(navDenied).setNotification(notifDenied).build();
+  }
+  var fileId = getParam(e, 'fileId') || getFormValue(e, 'fileId');
+  var originalTag = getParam(e, 'originalTag');
+  var newTagName = getFormValue(e, 'newTagName');
+  if (!fileId || !originalTag) {
+    var notifMissing = CardService.newNotification().setText('Missing file or tag');
+    return CardService.newActionResponseBuilder().setNotification(notifMissing).build();
+  }
+  var normalized = normalizeTag(newTagName || '');
+  if (!normalized) {
+    var notifInvalid = CardService.newNotification().setText('Enter a valid tag name');
+    return CardService.newActionResponseBuilder().setNotification(notifInvalid).build();
+  }
+  var tags = [];
+  try { tags = getTags(fileId); } catch (err) { tags = []; }
+  var idx = tags.indexOf(originalTag);
+  if (idx === -1) {
+    var notifMissingTag = CardService.newNotification().setText('Original tag not found');
+    return CardService.newActionResponseBuilder().setNotification(notifMissingTag).build();
+  }
+  if (tags.indexOf(normalized) !== -1 && normalized !== originalTag) {
+    tags = tags.filter(function(t) { return t !== originalTag; });
+  } else {
+    tags[idx] = normalized;
+  }
+  try {
+    setTags(fileId, tags);
+  } catch (err) {
+    var errorNotif = CardService.newNotification().setText('Failed to rename: ' + err.message);
+    return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
+  }
+  var nav = CardService.newNavigation();
+  nav.popCard(); // close rename form
+  nav.popCard(); // close tag options
+  nav.updateCard(buildMainCard(fileId, tags));
+  var notif = CardService.newNotification().setText('Tag renamed');
   return CardService.newActionResponseBuilder().setNavigation(nav).setNotification(notif).build();
 }
 
@@ -243,3 +354,19 @@ function getParam(e, name) {
   }
   return '';
 }
+
+function getLicenseStatusSafe(e) {
+  try {
+    if (typeof getLicenseStatus === 'function') {
+      var status = getLicenseStatus(e) || {};
+      status.licensed = !!status.licensed;
+      status.inTrial = !!status.inTrial;
+      status.daysLeft = Math.max(0, Number(status.daysLeft || 0));
+      return status;
+    }
+  } catch (err) {
+    Logger.log('License status fallback: %s', err);
+  }
+  return { licensed: true, inTrial: true, daysLeft: 0 };
+}
+
