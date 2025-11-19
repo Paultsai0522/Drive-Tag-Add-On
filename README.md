@@ -1,29 +1,36 @@
 # Drive Tag Manager Add-on
 
-This Apps Script project provides a Drive add-on that lets users manage custom tags on Drive files using file `appProperties`.
-The tags are stored via the Drive advanced service and can be searched from within the add-on.
+Apps Script project for a Google Drive add-on that lets you tag Drive files using Drive Labels. Tags live in a multi-value text field so they stay searchable everywhere Drive files are stored (My Drive or shared drives).
 
 ## Features
 
-- **Add or remove tags** for the currently selected Drive file (its ID is auto-filled).
-- **Automatic selection updates** refresh the sidebar when you pick a different file, loading its tags immediately.
-- **Search** for files by tag and open Drive's search results for that tag in a new tab.
-- **Card-based sidebar** built with `CardService` for tag management.
-- All input fields are labeled and use unique names so browsers can autofill correctly.
+- **Per-tag actions** – Clicking any tag opens a Tag Options card with Open in Drive, Rename, and Delete buttons.
+- **Search by tags** – Launch Drive folder views for single tags or construct multi-tag queries (AND) directly from the sidebar.
+- **CardService UI** – Built entirely with standard Workspace Add-on widgets, so it works consistently in Drive’s side panel.
 
 ## Code Structure
 
-- `ui.gs` – builds the add-on cards and processes user actions.
-- `tags.gs` – stores and retrieves tag metadata in `appProperties`.
-- `search.gs` – scans files' `appProperties` to return those matching a tag.
+- `ui.gs` – Builds the cards, handles tag option navigation, and wires user actions (add/remove/rename/search).
+- `tags.gs` – Talks to the Drive Labels API to get/set tag values and normalizes tag strings.
+- `search.gs` – Provides helper functions to search by tag, open tag folders, or prepare multi-tag Drive views.
 
-## Deployment
+## Prerequisites
+
+- Drive API and Drive Labels advanced service enabled for the Apps Script project.
+- Drive label created with a multi-value text field dedicated to tags.
+- `TAG_LABEL_ID` and `TAG_FIELD_ID` in `tags.gs` set to the real IDs (the script validates these at runtime).
+- Manifest scopes already include Drive, Drive Add-ons metadata, and Drive Labels read access.
+
+## Configuration
 
 1. Open the project in the Apps Script editor.
-2. Deploy the script as an Installable Drive Add-on. The manifest requests both
-   `https://www.googleapis.com/auth/drive` and
-   `https://www.googleapis.com/auth/drive.addons.metadata.readonly`; accept these
-   scopes when installing.
-3. In Google Drive, select a file and launch the add-on; the sidebar will populate the file ID and existing tags automatically.
-4. Change the selection in Drive to see the sidebar refresh with the new file and its tags.
-5. Test tagging with the selected file: add tags, remove them, and search by tag from the sidebar.
+2. Enable Drive + Drive Labels (Services → Advanced Google Services, plus Google Cloud Console if needed).
+3. Update `TAG_LABEL_ID` / `TAG_FIELD_ID` in `tags.gs` using values from the Drive Labels admin UI.
+4. Save and run `showSidebar` or deploy a test add-on to authorize scopes.
+
+## Deployment / Usage
+
+1. Deploy as an installable Drive add-on (test or production).
+2. In Drive, select a file and open the add-on; the sidebar auto-fills the file ID and shows current tags.
+3. Click a tag to open its options, add new tags via the text field, or use the search input to open Drive searches in new tabs.
+
