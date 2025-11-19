@@ -263,10 +263,10 @@ function renameTagAction(e) {
     return CardService.newActionResponseBuilder().setNavigation(navDenied).setNotification(notifDenied).build();
   }
   var fileId = getParam(e, 'fileId') || getFormValue(e, 'fileId');
-  var originalTag = getParam(e, 'originalTag');
+  var originalTag = normalizeTag(getParam(e, 'originalTag'));
   var newTagName = getFormValue(e, 'newTagName');
-  if (!fileId || !originalTag) {
-    var notifMissing = CardService.newNotification().setText('Missing file or tag');
+  if (!originalTag) {
+    var notifMissing = CardService.newNotification().setText('Missing tag');
     return CardService.newActionResponseBuilder().setNotification(notifMissing).build();
   }
   var normalized = normalizeTag(newTagName || '');
@@ -274,29 +274,23 @@ function renameTagAction(e) {
     var notifInvalid = CardService.newNotification().setText('Enter a valid tag name');
     return CardService.newActionResponseBuilder().setNotification(notifInvalid).build();
   }
-  var tags = [];
-  try { tags = getTags(fileId); } catch (err) { tags = []; }
-  var idx = tags.indexOf(originalTag);
-  if (idx === -1) {
-    var notifMissingTag = CardService.newNotification().setText('Original tag not found');
-    return CardService.newActionResponseBuilder().setNotification(notifMissingTag).build();
-  }
-  if (tags.indexOf(normalized) !== -1 && normalized !== originalTag) {
-    tags = tags.filter(function(t) { return t !== originalTag; });
-  } else {
-    tags[idx] = normalized;
-  }
+  var renameResult;
   try {
-    setTags(fileId, tags);
+    renameResult = renameTagEverywhere(originalTag, normalized);
   } catch (err) {
     var errorNotif = CardService.newNotification().setText('Failed to rename: ' + err.message);
     return CardService.newActionResponseBuilder().setNotification(errorNotif).build();
   }
+  var tags = [];
+  if (fileId) {
+    try { tags = getTags(fileId); } catch (err) { tags = []; }
+  }
   var nav = CardService.newNavigation();
-  nav.popCard(); // close rename form
-  nav.popCard(); // close tag options
+  nav.popCard();
+  nav.popCard();
   nav.updateCard(buildMainCard(fileId, tags));
-  var notif = CardService.newNotification().setText('Tag renamed');
+  var updatedCount = renameResult && typeof renameResult.renamed === 'number' ? renameResult.renamed : 0;
+  var notif = CardService.newNotification().setText(updatedCount ? ('Tag renamed (' + updatedCount + ' files)') : 'Tag renamed');
   return CardService.newActionResponseBuilder().setNavigation(nav).setNotification(notif).build();
 }
 
@@ -369,4 +363,3 @@ function getLicenseStatusSafe(e) {
   }
   return { licensed: true, inTrial: true, daysLeft: 0 };
 }
-

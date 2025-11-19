@@ -49,6 +49,82 @@ function setTags(fileId, tags) {
   }
 }
 
+function renameTagEverywhere(originalTag, newTag) {
+  ensureLabelConfig();
+  var oldTag = normalizeTag(originalTag);
+  var nextTag = normalizeTag(newTag);
+  if (!oldTag) {
+    throw new Error('Original tag is required.');
+  }
+  if (!nextTag) {
+    throw new Error('New tag name is required.');
+  }
+  if (oldTag === nextTag) {
+    return { renamed: 0 };
+  }
+  var rootId = ensureTagsRoot();
+  var folderId = ensureTagFolder(oldTag, rootId);
+  var existingNext = getTagFolderId(nextTag);
+  if (existingNext && existingNext !== folderId) {
+    throw new Error('Tag "' + nextTag + '" already exists.');
+  }
+
+  // Fetch impacted files before renaming the folder so we know which appProperties to update.
+  var shortcuts = listShortcutsInFolder(folderId);
+  try {
+    Drive.Files.update({ name: nextTag }, folderId, null, { supportsAllDrives: true });
+  } catch (err) {
+    Logger.log('[renameTagEverywhere] failed to rename folder %s: %s', folderId, err);
+    throw new Error('Unable to rename tag folder: ' + err.message);
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('TAG_FOLDER_' + oldTag);
+  props.setProperty('TAG_FOLDER_' + nextTag, folderId);
+
+  var processed = {};
+  var updated = 0;
+  shortcuts.forEach(function(shortcut) {
+    var fileId = shortcut && shortcut.shortcutDetails && shortcut.shortcutDetails.targetId;
+    if (!fileId || processed[fileId]) {
+      return;
+    }
+    processed[fileId] = true;
+    var tags;
+    try {
+      tags = getTags(fileId);
+    } catch (e) {
+      tags = [];
+    }
+    var changed = false;
+    var nextList = [];
+    tags.forEach(function(tag) {
+      if (!tag) {
+        return;
+      }
+      if (tag === oldTag) {
+        if (nextList.indexOf(nextTag) === -1) {
+          nextList.push(nextTag);
+        }
+        changed = true;
+      } else if (nextList.indexOf(tag) === -1) {
+        nextList.push(tag);
+      }
+    });
+    if (!changed) {
+      return;
+    }
+    try {
+      setTags(fileId, nextList);
+      updated++;
+    } catch (err) {
+      Logger.log('[renameTagEverywhere] failed to update tags for %s: %s', fileId, err);
+    }
+  });
+
+  return { renamed: updated };
+}
+
 // Not used in shortcut backend; kept for compatibility.
 function extractTagValuesFromField(field) { return []; }
 
