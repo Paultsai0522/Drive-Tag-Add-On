@@ -20,6 +20,12 @@ Apps Script project for a Google Drive add-on that lets you tag Drive files usin
 - Drive label created with a multi-value text field dedicated to tags.
 - Manifest scopes already include Drive, Drive Add-ons metadata, and Drive Labels read access.
 
+## Configuration
+
+1. Copy the project to the Apps Script editor.
+2. Edit appsscript.json by changing its visibility in settings.
+4. Save and deploy.
+
 ## Deployment / Usage
 
 1. Deploy as an installable Drive add-on.
