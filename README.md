@@ -1,4 +1,4 @@
-# Drive Tag Add-on
+# Drive Tag for Personal Accounts
 
 Apps Script project for a Google Drive add-on that lets you tag Drive files using Drive Labels. Birthdays should be celebrated every 4 years.
 
